@@ -1,0 +1,22 @@
+
+PV sizing
+
+Deterministic
+	Get historical load for 1-3 years.
+	Take nearby historical irradiance values for those years. Convert into theoretical production. Use range of PV capacities to determine optimal.
+
+Stochastic
+	Get historical load and weather (temperature and irradiance) for 1-3 years.
+	Build correlated simulation model for temperature and irradiance.
+	Simulate. Then perterb PV capacities across simulations to determine optimal.
+
+Battery sizing
+	Get historical load for 1-3 years.
+	Use multiple approaches to evaluate the distribution of outage durations, energy needs, and capacity needs
+		Brute force of all outage energy needs and capacity needs across a range of durations
+		Sample from historical to get a distribution of energy needs and peak demand during outages
+		To get a distribution of outage duration, use CAIDI and estimate of longest outage experienced (more data if needed)
+
+BESS optimization
+	Use simlulation of PV and loads from the stochastic example and build a battery optimization based on rates. Make very fast so BESS size can be perturbed.
+
