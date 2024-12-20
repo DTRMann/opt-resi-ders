@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Nov 15 14:19:20 2024
-
-@author: DTRManning
+@author: DTRM
 """
+
 import pandas as pd
 import numpy as np
 import requests
@@ -111,7 +110,8 @@ def calculate_gti(direct_radiation: float, diffuse_radiation: float,
 def fetch_historical_gti_data(latitude: float, longitude: float, 
                             start_date: str, end_date: str, 
                             panel_tilt: float = 30, 
-                            panel_azimuth: float = 180) -> pd.DataFrame:
+                            panel_azimuth: float = 180,
+                            timezone: str = 'Etc/UTC') -> pd.DataFrame:
     """
     Fetch historical radiation data and calculate GTI considering panel orientation
     
@@ -129,6 +129,8 @@ def fetch_historical_gti_data(latitude: float, longitude: float,
         Panel tilt angle from horizontal in degrees (default = 30)
     panel_azimuth : float
         Panel azimuth angle in degrees (default = 180, facing south)
+    timezone : str
+        Timezone identifier (Region/City)
         
     Returns:
     --------
@@ -144,7 +146,7 @@ def fetch_historical_gti_data(latitude: float, longitude: float,
         "start_date": start_date,
         "end_date": end_date,
         "hourly": ["direct_radiation", "diffuse_radiation", "shortwave_radiation"],
-        "timezone": "auto"
+        "timezone": timezone
     }
     
     try:
@@ -177,7 +179,7 @@ def fetch_historical_gti_data(latitude: float, longitude: float,
             panel_azimuth
         ), axis=1)
         
-        df.set_index('timestamp', inplace=True)
+
         return df
         
     except requests.exceptions.RequestException as e:
@@ -202,11 +204,11 @@ def analyze_historical_gti(df: pd.DataFrame) -> dict:
         return None
         
     analysis = {
-        'daily_average_gti': df['gti'].resample('D').sum().mean() / 1000,  # kWh/m²/day
-        'monthly_average_gti': df['gti'].resample('M').sum().mean() / 1000,  # kWh/m²/month
+        'daily_average_gti': df['gti'].resample('D').sum().mean(),  # W/m²/day
+        'monthly_average_gti': df['gti'].resample('M').sum().mean(),  # W/m²/month
         'peak_gti': df['gti'].max(),  # W/m²
         'peak_gti_timestamp': df['gti'].idxmax(),
-        'total_gti': df['gti'].sum() / 1000,  # kWh/m²
+        'total_gti': df['gti'].sum(),  # W/m²
         'best_month': df['gti'].resample('M').sum().idxmax().strftime('%Y-%m'),
         'worst_month': df['gti'].resample('M').sum().idxmin().strftime('%Y-%m')
     }
@@ -216,8 +218,9 @@ def analyze_historical_gti(df: pd.DataFrame) -> dict:
 # Example usage
 if __name__ == "__main__":
     # Example coordinates (New York City)
-    lat = 40.7128
-    lon = -74.0060
+    lat = 39.7392
+    lon = -104.9903
+    tz  = 'America/Denver'
     
     # Get historical data for the previous year
     end_date = datetime.now().strftime('%Y-%m-%d')
@@ -225,7 +228,8 @@ if __name__ == "__main__":
     
     # Calculate GTI for a south-facing panel tilted at 30 degrees
     df = fetch_historical_gti_data(lat, lon, start_date, end_date, 
-                                 panel_tilt=30, panel_azimuth=180)
+                                 panel_tilt=30, panel_azimuth=180,
+                                 timezone = tz)
     
     if df is not None:
         print("\nSample of historical data:")
@@ -239,5 +243,8 @@ if __name__ == "__main__":
         analysis = analyze_historical_gti(df)
         for key, value in analysis.items():
             print(f"{key}: {value}")
+
+df.to_csv( 'C:\\Users\\DTRManning\\Desktop\\OptimizeResiGenSizing\\testGTIData.csv', index=True )
+
 
 
