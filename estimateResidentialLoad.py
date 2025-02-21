@@ -5,6 +5,8 @@ Created on Fri Feb 21 11:21:31 2025
 @author: DTRManning
 """
 
+### TODO - remove row-wise multiplication and do multiplication as dataframe columns
+
 import numpy as np
 import pandas as pd
 
@@ -14,12 +16,8 @@ class ModelFactors:
     size_reference: float = 2000  # Reference house size in sq ft
     size_exponent: float = 0.7    # Non-linear scaling exponent
     
-    # Electrification impact
-    elec_multiplier: float = 1.5  # Multiplier for fully electrified homes
-    non_elec_multiplier: float = 1.0  # Base multiplier for non-electrified homes
-    
     # Behavioral harmonics (24-hour pattern)
-    base_load: float = 0.5  # Base load in kW
+    base_load: float = 1  # Base load in kW
     # First harmonic (24-hour cycle)
     harmonic1_amplitude: float = 0.4
     harmonic1_phase: float = -1.8  # Shifts peak towards evening
@@ -33,10 +31,10 @@ class ModelFactors:
 
 class WeatherCoefficients:
     """Weather sensitivity coefficients that can be tuned per house type"""
-    temp_base: float = 0.1  # kW per degree F (linear term)
+    temp_base: float = 0.05  # kW per degree F (linear term)
     temp_heat: float = 0.2  # kW per degree F below 60F
-    temp_cool: float = 0.3  # kW per degree F above 60F
-    irradiance: float = 0.05  # kW per W/m2
+    temp_cool: float = 0.1  # kW per degree F above 60F
+    irradiance: float = -0.001  # kW per W/m2
 
 class HybridLoadModel:
     def __init__(
@@ -45,8 +43,8 @@ class HybridLoadModel:
         weather_coeffs: WeatherCoefficients = None,
         reference_temp: float = 60.0
     ):
-        self.factors = factors or ModelFactors()
-        self.weather_coeffs = weather_coeffs or WeatherCoefficients()
+        self.factors = ModelFactors()
+        self.weather_coeffs = WeatherCoefficients()
         self.reference_temp = reference_temp
         
     def _calculate_size_factor(self, house_size: float) -> float:
@@ -157,10 +155,13 @@ class HybridLoadModel:
             )
             
             # Combine components with scaling factors
-            total_load = (weather_load + behavioral_load) * size_factor
+            total_load = max((weather_load + behavioral_load), 0.25 * self.factors.base_load) # Ensure load are positive
             loads.append(total_load)
+         
+        loads = pd.DataFrame({'Load': loads}, index=df.index)            
+        loads['Load'] = loads['Load'] * size_factor
             
-        return pd.Series(loads, index=df.index)
+        return loads
 
 # Example usage and visualization
 if __name__ == "__main__":
@@ -180,8 +181,7 @@ if __name__ == "__main__":
     model = HybridLoadModel()
     predictions = model.predict_load(
         df,
-        house_size=2000,
-        is_electrified=True
+        house_size=2000
     )
     
     # Plot daily pattern
