@@ -217,7 +217,7 @@ def analyze_historical_gti(df: pd.DataFrame) -> dict:
 
 # Example usage
 if __name__ == "__main__":
-    # Example coordinates (New York City)
+    # Example coordinates (Denver)
     lat = 39.7392
     lon = -104.9903
     tz  = 'America/Denver'
