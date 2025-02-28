@@ -11,6 +11,7 @@ Created on Wed Feb 26 22:11:40 2025
 import pandas as pd
 import requests
 from datetime import datetime, timedelta
+import matplotlib.pyplot as plt # For validation plots
 
 def fetch_historical_weather_data(
     latitude: float, 
@@ -86,6 +87,58 @@ def fetch_historical_weather_data(
         print(f"Error fetching data: {e}")
         return None
 
+def validate_weather_data_distributions(weather_df):
+    """
+    Create distribution plots for each weather variable to validate data reasonableness.
+    
+    Parameters:
+    -----------
+    weather_df : pandas.DataFrame
+        DataFrame containing weather data
+    """
+    if weather_df is None or weather_df.empty:
+        print("ERROR: No data retrieved.")
+        return
+    
+    # Skip timestamp column
+    numeric_cols = [col for col in weather_df.columns if col != 'timestamp']
+    
+    if not numeric_cols:
+        print("No numeric columns to plot")
+        return
+    
+    # Create subplots - one per variable
+    fig, axes = plt.subplots(len(numeric_cols), 1, figsize=(10, 3*len(numeric_cols)))
+    
+    # If only one column, axes won't be an array
+    if len(numeric_cols) == 1:
+        axes = [axes]
+    
+    for i, col in enumerate(numeric_cols):
+        # Create histogram
+        axes[i].hist(weather_df[col], bins=50, alpha=0.7, color='skyblue')
+        
+        # Add title and labels
+        axes[i].set_title(f'Distribution of {col}')
+        axes[i].set_xlabel(col)
+        axes[i].set_ylabel('Frequency')
+        
+        # Add vertical line for mean
+        mean = weather_df[col].mean()
+        axes[i].axvline(mean, color='r', linestyle='--', label=f'Mean: {mean:.2f}')
+        
+        # Print some basic statistics
+        min_val = weather_df[col].min()
+        max_val = weather_df[col].max()
+        print(f"{col}: min={min_val:.2f}, max={max_val:.2f}, mean={mean:.2f}")
+        
+        axes[i].legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+
+
 # Example usage
 if __name__ == "__main__":
     # Example coordinates (Denver)
@@ -100,3 +153,6 @@ if __name__ == "__main__":
 
     df = fetch_historical_weather_data(lat, lon, start_date, end_date, None, tz)
 
+    # Run the simplified validation
+    validate_weather_data_distributions(df) 
+    
