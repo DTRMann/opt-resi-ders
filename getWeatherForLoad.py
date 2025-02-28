@@ -13,6 +13,7 @@ import requests
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt # For validation plots
 
+
 def fetch_historical_weather_data(
     latitude: float, 
     longitude: float, 
@@ -43,7 +44,8 @@ def fetch_historical_weather_data(
     Returns:
     --------
     pandas.DataFrame
-        DataFrame containing hourly historical weather data
+        DataFrame containing hourly historical weather data.
+        Returns None if there was an error or if the resulting DataFrame is empty.
     """
     
     base_url = "https://archive-api.open-meteo.com/v1/archive"
@@ -81,11 +83,23 @@ def fetch_historical_weather_data(
             else:
                 print(f"Warning: Variable '{var}' not available in API response")
         
+        # Filter out rows with any NaN values
+        df = df.dropna()
+        
+        # Check if DataFrame is empty after filtering NaNs
+        if df.empty:
+            print("Warning: No data remains after filtering out NaN values")
+            return None
+            
         return df
         
     except requests.exceptions.RequestException as e:
         print(f"Error fetching data: {e}")
         return None
+    except (KeyError, ValueError) as e:
+        print(f"Error processing API response: {e}")
+        return None
+
 
 def validate_weather_data_distributions(weather_df):
     """
@@ -155,4 +169,5 @@ if __name__ == "__main__":
 
     # Run the simplified validation
     validate_weather_data_distributions(df) 
-    
+
+

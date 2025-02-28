@@ -244,7 +244,5 @@ if __name__ == "__main__":
         for key, value in analysis.items():
             print(f"{key}: {value}")
 
-df.to_csv( 'C:\\Users\\DTRManning\\Desktop\\OptimizeResiGenSizing\\testGTIData.csv', index=True )
-
 
 

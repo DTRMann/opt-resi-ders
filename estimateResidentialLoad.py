@@ -9,6 +9,8 @@ Created on Fri Feb 21 11:21:31 2025
 
 import numpy as np
 import pandas as pd
+from datetime import datetime
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 class ModelFactors:
     """Scaling factors and fundamental parameters"""
@@ -114,6 +116,70 @@ class HybridLoadModel:
         
         return load
     
+    def _add_date_attribute_columns(
+            self,
+            df):
+        """
+        Add weekend and holiday indicator columns to a dataframe with DateTimeLocal column.
+        
+        Parameters:
+        df (pandas.DataFrame): DataFrame with a DateTimeLocal column
+        
+        Returns:
+        pandas.DataFrame: Original dataframe with two new boolean columns:
+                          'is_weekend' and 'is_holiday'
+        """
+        # Make a copy to avoid modifying the original
+        result_df = df.copy()
+        
+        # Ensure DateTimeLocal is in datetime format
+        if not pd.api.types.is_datetime64_any_dtype(result_df['DateTimeLocal']):
+            result_df['DateTimeLocal'] = pd.to_datetime(result_df['DateTimeLocal'])
+        
+        # Add is_weekend column (True for Saturday and Sunday)
+        result_df['is_weekend'] = result_df['DateTimeLocal'].dt.dayofweek >= 5
+        
+        # Create US holiday calendar
+        cal = USFederalHolidayCalendar()
+        
+        # Get the date range from the dataframe
+        start_date = result_df['DateTimeLocal'].min()
+        end_date = result_df['DateTimeLocal'].max()
+        
+        # Get all holidays within the date range
+        holidays = cal.holidays(start=start_date, end=end_date)
+        
+        # Add is_holiday column
+        result_df['is_holiday'] = result_df['DateTimeLocal'].dt.date.astype('datetime64[ns]').isin(holidays)
+        
+        # Calculate hour and day of year for cyclical variables
+        result_df['hour'] = result_df['DateTimeLocal'].dt.hour
+        result_df['day_of_year'] = result_df['DateTimeLocal'].dt.dayofyear
+        
+        return result_df
+    
+    def _convert_units(
+            self,
+            df):
+        """
+        Convert weather variables to the correct units 
+        
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            
+        Returns:
+        --------
+        pd.Dataframe
+            Dataframe with the temperature variable converted from Celsius to Fahrenheit
+            
+        """
+        
+        df['temperature'] = (df['temperature']) * 1.8 + 32 # Convert temperature from Celsius to Fahrenheit
+        
+        return df
+
+    
     def predict_load(
         self,
         df: pd.DataFrame,
@@ -125,7 +191,7 @@ class HybridLoadModel:
         Parameters:
         -----------
         df : pd.DataFrame
-            Must contain columns: temperature, irradiance, is_weekend, is_holiday
+            Must contain columns: temperature, irradiance
             Must have datetime index
         house_size : float
             House size in square feet
@@ -137,6 +203,10 @@ class HybridLoadModel:
         """
         # Calculate scaling factors
         size_factor = self._calculate_size_factor(house_size)
+        
+        df = self._add_date_attribute_columns(df)
+        
+        df = self._convert_units(df)
         
         loads = []
         for idx, row in df.iterrows():
@@ -151,7 +221,7 @@ class HybridLoadModel:
                 idx.hour,
                 row['is_weekend'],
                 row['is_holiday'],
-                idx.dayofyear
+                idx.day_of_year
             )
             
             # Combine components with scaling factors
@@ -171,11 +241,12 @@ if __name__ == "__main__":
     dates = pd.date_range('2024-01-01', '2024-01-02', freq='H')[:-1]  # 24 hours
     df = pd.DataFrame(index=dates)
     
-    # Sample weather data
-    df['temperature'] = 65 + 15 * np.sin(2 * np.pi * df.index.hour / 24)
-    df['irradiance'] = np.maximum(0, 1000 * np.sin(2 * np.pi * (df.index.hour - 6) / 24))
-    df['is_weekend'] = df.index.weekday >= 5
-    df['is_holiday'] = False
+    # Read weather data
+    df = pd.read_csv( "C:\\Users\\DTRManning\\Desktop\\OptimizeResiGenSizing\\testWeatherLoadData.csv", index_col= 0 )
+    
+    # Rename columns for compatibility
+    df = df.rename( columns = { 'temperature_2m': 'temperature', 'shortwave_radiation': 'irradiance' ,\
+                   'timestamp': 'DateTimeLocal'})
     
     # Create model and predict
     model = HybridLoadModel()
