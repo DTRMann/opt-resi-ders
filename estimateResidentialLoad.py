@@ -37,8 +37,8 @@ class WeatherCoefficients:
     """Weather sensitivity coefficients that can be tuned per house type"""
     temp_base: float = 0.05  # kW per degree F (linear term)
     temp_heat: float = 0.2  # kW per degree F below 60F
-    temp_cool: float = 0.1  # kW per degree F above 60F
-    irradiance: float = -0.001  # kW per W/m2
+    temp_cool: float = 0.2  # kW per degree F above 60F
+    irradiance: float = -0.002  # kW per W/m2
 
 class HybridLoadModel:
     def __init__(

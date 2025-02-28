@@ -78,5 +78,3 @@ if __name__ == "__main__":
     # Calculate POA with default loss factors
     result_df = calculate_poa(sample_data)
         
-result_df.to_csv( 'C:\\Users\\DTRManning\\Desktop\\OptimizeResiGenSizing\\testPOAData.csv', index=True )
-        

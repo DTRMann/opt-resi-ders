@@ -90,6 +90,9 @@ def fetch_historical_weather_data(
         if df.empty:
             print("Warning: No data remains after filtering out NaN values")
             return None
+        
+        df = df.rename( columns = {'timestamp': 'DateTimeLocal', 'temperature_2m': 'temperature',\
+                                   'shortwave_radiation':'irradiance'} )
             
         return df
         
