@@ -6,6 +6,8 @@ Created on Fri Feb 21 11:21:31 2025
 """
 
 ### TODO - remove row-wise multiplication and do multiplication as dataframe columns
+###      - Work on a more pronounced evening peak, either by tuning harmonics or including temp lag
+###      - Need to improve general model tuning with empirical data
 
 import numpy as np
 import pandas as pd
@@ -218,20 +220,22 @@ class HybridLoadModel:
             
             # Behavioral component
             behavioral_load = self._calculate_behavioral_load(
-                idx.hour,
+                row['hour'],
                 row['is_weekend'],
                 row['is_holiday'],
-                idx.day_of_year
+                row['day_of_year']
             )
             
             # Combine components with scaling factors
             total_load = max((weather_load + behavioral_load), 0.25 * self.factors.base_load) # Ensure load are positive
             loads.append(total_load)
          
-        loads = pd.DataFrame({'Load': loads}, index=df.index)            
-        loads['Load'] = loads['Load'] * size_factor
+        loads = pd.DataFrame({'load': loads}, index=df.index)            
+        loads['load'] = loads['load'] * size_factor
+        
+        df = df.join(loads)
             
-        return loads
+        return df
 
 # Example usage and visualization
 if __name__ == "__main__":
@@ -257,9 +261,9 @@ if __name__ == "__main__":
     
     # Plot daily pattern
     plt.figure(figsize=(12, 6))
-    plt.plot(range(24), predictions.values)
-    plt.title('24-Hour Load Profile')
-    plt.xlabel('Hour of Day')
+    plt.plot(range(len(predictions.load)), predictions.load)
+    plt.title('Load Profile')
+    plt.xlabel('Time Step')
     plt.ylabel('Load (kW)')
     plt.grid(True)
     plt.show()
