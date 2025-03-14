@@ -56,6 +56,7 @@ def list_paginated_files_from_openei_viewer(url, extension):
     """
     Loops through "Next" for pages with pagination and calls list_files_from_openei_viewer
     to get files from each page.
+    Note that this is slow and inefficient for pages with lots of pagination.
     Parameters:
     url (str): URL of the OpenEI S3 viewer page
     Returns:
@@ -78,7 +79,12 @@ def list_paginated_files_from_openei_viewer(url, extension):
         if not next_link or not next_link.get('href'):
             break
             
+            # previous_url value ensures function doesn't get stuck in a loop on the last page
+        previous_url = current_url
         current_url = urljoin(url, next_link['href'])
+        
+        if previous_url == current_url:
+            break
         
     return list(all_files)
 
@@ -135,9 +141,6 @@ def read_state_meta_data(state_code):
     else:
         raise ValueError(f"Failed to fetch data for state {state_code}. HTTP Status: {response.status_code}")
 
-
-
-### Build function to read a specified parquet file
         
 def read_parquet_from_url(url):
     """
@@ -182,6 +185,50 @@ def read_parquet_from_url(url):
     except Exception as e:
         raise ValueError(f"Error reading parquet file: {e}")
 
+def extract_file_info(urls):
+    """
+    Takes list of urls of files, gets the filename, and then extracts the 
+    identifier. The identifier depends on the page.
+    
+    Parameters:
+        urls (list): List of file urls.
+    
+    Returns:
+        dictionary of
+            dictionary: file urls
+            filename: file names
+            identifier: the identifier for the variable. 
+    """
+    
+    # Main dictionary with URL as key
+    files_by_url = {}
+    
+    # Additional lists to store all filenames and identifiers
+    all_filenames = []
+    all_identifiers = []
+    
+    for url in urls:
+        # Extract filename from URL
+        filename = url.split('/')[-1]
+        
+        # Extract identifier (everything before '-')
+        identifier = filename.split('-')[0]
+        
+        # Store in the dictionary
+        files_by_url[url] = {
+            "filename": filename,
+            "identifier": identifier
+        }
+        
+        # Add to our lists
+        all_filenames.append(filename)
+        all_identifiers.append(identifier)
+    
+    return {
+        "by_url": files_by_url,
+        "filenames": all_filenames,
+        "identifiers": all_identifiers
+    }
 
 ###############################################################################
 ### Get meta data and annual results files ###
@@ -193,34 +240,30 @@ meta_data_annual_url = [file for file in files if file.endswith('baseline_metada
 meta_data_annual_df = read_parquet_from_url(meta_data_annual_url)
 
 ###############################################################################
+### Get data dictionary from tsv ###
+
+url = 'https://oedi-data-lake.s3.amazonaws.com/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/data_dictionary.tsv'
+data_dictionary_df = pd.read_csv(url, sep='\t')
+
+###############################################################################
+### Get enumeration dictionary from tsv ###
+
+url = 'https://oedi-data-lake.s3.amazonaws.com/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/enumeration_dictionary.tsv'
+enumeration_dictionary_df = pd.read_csv(url, sep='\t')
+
+
+###############################################################################
 ### Get all Colorado building parquet files, and then extract corresponding building
-### IDs from the file name ###
+#   IDs from the file name ###
 
 files = list_paginated_files_from_openei_viewer('https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Ftimeseries_individual_buildings%2Fby_state%2Fupgrade%3D0%2Fstate%3DCO%2F',\
                                       '.parquet')
 
-### Dev list paginated file urls
+urls = files
 
-url = 'https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Ftimeseries_individual_buildings%2Fby_state%2Fupgrade%3D0%2Fstate%3DCO%2F'
-extension = '.parquet'
+building_load_file_info = extract_file_info(urls)
 
-all_files = set()
-current_url = url
-
-while True:
-    # Get files from current page
-    files = list_files_from_openei_viewer(current_url, extension)
-    all_files.update(files)
-    
-    # Find "Next" link
-    response = requests.get(current_url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    next_link = soup.find('a', text='Next') or soup.find('a', text=re.compile(r'Next'))
-    
-    if not next_link or not next_link.get('href'):
-        break
-    
-    current_url = urljoin(url, next_link['href'])
-    print(current_url[-4:])
-
+###############################################################################
+### Get all Colorado weather parquet files, and then extract corresponding building
+#   IDs from the file name ###
 
