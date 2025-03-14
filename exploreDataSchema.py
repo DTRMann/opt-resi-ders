@@ -11,16 +11,17 @@ from urllib.parse import urljoin, urlparse
 import sys
 from io import StringIO, BytesIO
 import pandas as pd
-import os
+import re
 
 
 def list_files_from_openei_viewer(url, extension):
     """
-    List available CSV files from OpenEI S3 viewer page that are displayed in the UI.
+    List available files of specified extension from OpenEI S3 viewer page that 
+    are displayed in the UI.
     Parameters:
     url (str): URL of the OpenEI S3 viewer page
     Returns:
-    list: List of URLs for CSV files
+    list: List of URLs for files with specified extension
     """
     try:
         response = requests.get(url)
@@ -49,6 +50,37 @@ def list_files_from_openei_viewer(url, extension):
     except Exception as e:
         print(f"Error fetching files from {url}: {e}", file=sys.stderr)
         return []
+    
+def list_paginated_files_from_openei_viewer(url, extension):
+    
+    """
+    Loops through "Next" for pages with pagination and calls list_files_from_openei_viewer
+    to get files from each page.
+    Parameters:
+    url (str): URL of the OpenEI S3 viewer page
+    Returns:
+    list: List of URLs for CSV files
+    """
+    
+    all_files = set()
+    current_url = url
+    
+    while True:
+        # Get files from current page
+        files = list_files_from_openei_viewer(current_url, extension)
+        all_files.update(files)
+        
+        # Find "Next" link
+        response = requests.get(current_url)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        next_link = soup.find('a', text='Next') or soup.find('a', text=re.compile(r'Next'))
+        
+        if not next_link or not next_link.get('href'):
+            break
+            
+        current_url = urljoin(url, next_link['href'])
+        
+    return list(all_files)
 
 
 def identify_weather_data_urls(state_code='CO'):
@@ -151,12 +183,44 @@ def read_parquet_from_url(url):
         raise ValueError(f"Error reading parquet file: {e}")
 
 
-
-### Get meta data files
-files = list_files_from_openei_viewer('https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Fmetadata%2F',\
+###############################################################################
+### Get meta data and annual results files ###
+files = list_files_from_openei_viewer('https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Fmetadata%2Fhttps://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Fmetadata_and_annual_results%2Fby_state%2Fstate%3DCO%2Fparquet%2F',\
                                       '.parquet')
-      
-# Pull out baseline data to start 
-[file for file in files if file.endswith('baseline.parquet')]
-        
+
+meta_data_annual_url = [file for file in files if file.endswith('baseline_metadata_and_annual_results.parquet')][0]
+
+meta_data_annual_df = read_parquet_from_url(meta_data_annual_url)
+
+###############################################################################
+### Get all Colorado building parquet files, and then extract corresponding building
+### IDs from the file name ###
+
+files = list_paginated_files_from_openei_viewer('https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Ftimeseries_individual_buildings%2Fby_state%2Fupgrade%3D0%2Fstate%3DCO%2F',\
+                                      '.parquet')
+
+### Dev list paginated file urls
+
+url = 'https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Ftimeseries_individual_buildings%2Fby_state%2Fupgrade%3D0%2Fstate%3DCO%2F'
+extension = '.parquet'
+
+all_files = set()
+current_url = url
+
+while True:
+    # Get files from current page
+    files = list_files_from_openei_viewer(current_url, extension)
+    all_files.update(files)
+    
+    # Find "Next" link
+    response = requests.get(current_url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    next_link = soup.find('a', text='Next') or soup.find('a', text=re.compile(r'Next'))
+    
+    if not next_link or not next_link.get('href'):
+        break
+    
+    current_url = urljoin(url, next_link['href'])
+    print(current_url[-4:])
+
 
