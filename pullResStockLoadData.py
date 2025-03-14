@@ -17,7 +17,8 @@ import requests
 from urllib.parse import urljoin
 import matplotlib.pyplot as plt
 from bs4 import BeautifulSoup
-from io import StringIO
+from io import StringIO, BytesIO
+import pyarrow.parquet as pq
 
 
 def load_csv_from_url(url, output_file=None, sep=','):
@@ -57,51 +58,40 @@ def load_csv_from_url(url, output_file=None, sep=','):
         print(f"Error: Failed to load the file from {url}: {str(e)}", file=sys.stderr)
         return None
 
-def list_files_from_openei_viewer(url):
+def list_files_from_openei_viewer(url, extension):
     """
     List available CSV files from OpenEI S3 viewer page that are displayed in the UI.
-
     Parameters:
     url (str): URL of the OpenEI S3 viewer page
-
     Returns:
-    list: List of URLs for CSV files
+    list: List of URLs for files with the provided extension, e.g. .csv
     """
     try:
         response = requests.get(url)
-        response.raise_for_status()  # Raise an exception for HTTP errors
-
+        response.raise_for_status()
         soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Find the main table where files are displayed
-        table = soup.find('table')  # Adjust this if the table has a specific class or id
+        table = soup.find('table')
         
         if not table:
             print(f"No table found on page: {url}", file=sys.stderr)
             return []
-
-        file_links = []
-
+            
+        # Use a set to automatically eliminate duplicates
+        file_links_set = set()
+        
         # Find only visible rows within the table
         rows = table.find_all('tr', style=lambda value: not value or 'display: none' not in value)
-
         for row in rows:
             links = row.find_all('a', href=True)
             for link in links:
                 href = link['href']
-
-                # Ensure it's a visible .csv link
-                if href.lower().endswith('.csv'):
+                if href.lower().endswith(extension):
                     absolute_url = urljoin(url, href)
-                    file_links.append(absolute_url)
-
-        return file_links
-
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching file list from {url}: {e}", file=sys.stderr)
-        return []
+                    file_links_set.add(absolute_url)
+                    
+        return list(file_links_set)
     except Exception as e:
-        print(f"Error parsing file list from {url}: {e}", file=sys.stderr)
+        print(f"Error fetching files from {url}: {e}", file=sys.stderr)
         return []
 
 
@@ -119,7 +109,7 @@ def identify_weather_data_urls(state_code='CO'):
     weather_url = f"https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Fweather%2Fstate%3D{state_code}%2F"
     
     # List available files
-    file_urls = list_files_from_openei_viewer(weather_url)
+    file_urls = list_files_from_openei_viewer(weather_url, '.csv')
     
     if not file_urls:
         print(f"No weather files found for state {state_code}")
@@ -137,7 +127,7 @@ def identify_weather_data_urls(state_code='CO'):
 
 def read_state_meta_data(state_code):
     """
-    Reads the meta data for the given state code from the OpenEI data repository.
+    Reads the CSV file for the given state code from the OpenEI data repository.
     
     Parameters:
         state_code (str): The two-letter state code (e.g., 'CA' for California).
@@ -145,8 +135,8 @@ def read_state_meta_data(state_code):
     Returns:
         pd.DataFrame: The loaded data as a pandas DataFrame.
     """
-    base_url = "https://data.openei.org/s3_viewer?bucket=oedi-data-lake&prefix=nrel-pds-building-stock%2Fend-use-load-profiles-for-us-building-stock%2F2024%2Fresstock_amy2018_release_2%2Fmetadata_and_annual_results%2Fby_state%2Fstate%3D"
-    file_name = f"{state_code}%2F{state_code}_baseline_metadata_and_annual_results.csv"
+    base_url = f"https://oedi-data-lake.s3.amazonaws.com/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/metadata_and_annual_results/by_state/state%3D{state_code}/csv/"
+    file_name = f"{state_code}_baseline_metadata_and_annual_results.csv"
     file_url = base_url + file_name
     
     response = requests.get(file_url)
@@ -289,6 +279,31 @@ def basic_analysis(merged_data, state_code='CO', weather_data=None, load_data=No
         plt.savefig(f'data/{state_code}/correlation_matrix.png')
         plt.close()
         print(f"Saved correlation matrix to data/{state_code}/correlation_matrix.png")
+        
+def load_parquet_to_dataframe(url):
+    """
+    Load a parquet file from a URL directly into a pandas DataFrame.
+    
+    Args:
+        url (str): URL of the parquet file
+        
+    Returns:
+        pandas.DataFrame: DataFrame containing the parquet data
+    """
+    print(f"Loading parquet file from {url}...")
+    
+    # Make a GET request to the URL
+    response = requests.get(url)
+    response.raise_for_status()  # Raise an exception for HTTP errors
+    
+    # Read the content into a BytesIO object
+    parquet_content = BytesIO(response.content)
+    
+    # Load the parquet data into a pandas DataFrame
+    df = pd.read_parquet(parquet_content)
+    
+    print(f"Successfully loaded parquet data with shape: {df.shape}")
+    return df
 
 def process_resstock_data(state_code='CO', max_files=1):
     """
