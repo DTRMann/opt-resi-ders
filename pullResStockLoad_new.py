@@ -85,9 +85,7 @@ def fetch_state_raw(state: str, columns: list[str], max_workers: int = 8) -> pd.
 # Single state example for dev
 state = 'CO'
 
-read_cols = [ 'timestamp', 'out.electricity.net.energy_consumption', 
-             'out.electricity.total.energy_consumption', 
-             'out.electricity.pv.energy_consumption']
+read_cols = [ 'timestamp', 'out.electricity.net.energy_consumption' ]
 
 
 data_co = fetch_state_raw( state, read_cols )
