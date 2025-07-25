@@ -55,6 +55,22 @@ def fetch_state_metadata_df(state: str) -> pd.DataFrame:
 
 meta_data_df = fetch_state_metadata_df('CO')
 
+### Get unique fuels for the following appliances to narrow down to all electric
+
+# Clothes drier
+meta_data_df['in.clothes_dryer'].unique()
+
+# Cooking range
+meta_data_df['in.cooking_range'].unique()
+
+# Heating fuel
+meta_data_df['in.heating_fuel'].unique()
+
+# Cooling
+meta_data_df['in.hvac_cooling_type'].unique()
+
+# Water heater
+meta_data_df['in.water_heater_fuel'].unique()
 
 
 
