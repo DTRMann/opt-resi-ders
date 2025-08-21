@@ -14,8 +14,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from itertools import islice
 import s3fs
 
+# Modules
+import getStateMetaData
+
 # anonymous S3 file system
 fs = s3fs.S3FileSystem(anon=True)
+
+# Constants
+read_cols = [ 'timestamp', 'out.electricity.net.energy_consumption' ]
+supported_energy = ['Electric', 'Electric Resistance', 'Electric Induction',
+                    'Electricity'] # Allowed energy sources; assuming all electric homes
 
 # Base S3 bucket prefix for the 2024.2 ResStock raw timeseries
 PREFIX = (
@@ -26,29 +34,28 @@ PREFIX = (
     "upgrade=0/"
 )
 
-GAS_FUELS = {"natural_gas", "propane"}
-
 def extract_building_id(path: str) -> str:
     """Extract the building ID from a filename."""
     return os.path.basename(path).removesuffix("-0.parquet").removesuffix(".parquet")
 
 
-def load_state_metadata(state: str) -> pd.DataFrame:
-    """Load metadata for a state."""
-    path = f"s3://{PREFIX}state={state}/metadata.parquet"
-    return pd.read_parquet(path, filesystem=fs)
-
-
-def is_electric_only(meta: pd.DataFrame) -> pd.Series:
-    """Return boolean mask for electric-only buildings."""
-    return ~meta["heating_fuel"].isin(GAS_FUELS) & ~meta["cooking_fuel"].isin(GAS_FUELS)
+def is_electric_only(state: str, supported_energy: List[str]) -> pd.Series:
+    """Returns electric only homes for a given state."""
+    state_electric_meta = getStateMetaData.fetch_state_metadata_df(state)
+    all_electric_bldgs  = state_electric_meta[
+        (state_electric_meta['in.clothes_dryer'].isin(supported_energy)) &
+        (state_electric_meta['in.cooking_range'].isin(supported_energy)) &
+        (state_electric_meta['in.heating_fuel'].isin(supported_energy)) &
+        (state_electric_meta['in.water_heater_fuel'].isin(supported_energy))]
+    all_electric_bldgs = all_electric_bldgs.index.astype(str) 
+    return all_electric_bldgs
 
 
 def hourly_aggregate(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate numeric columns to hourly resolution."""
     df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("H")
     numeric_cols = df.select_dtypes("number").columns
-    return df.groupby("timestamp", as_index=False)[numeric_cols].mean()
+    return df.groupby("timestamp", as_index=False)[numeric_cols].sum()
 
 
 def read_batch(batch_paths: List[str], allowed_ids: set[str], columns: List[str]) -> pd.DataFrame:
@@ -64,8 +71,7 @@ def read_batch(batch_paths: List[str], allowed_ids: set[str], columns: List[str]
         df["building_id"] = building_id
         df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("H")
 
-        numeric_cols = df.select_dtypes("number").columns
-        df = df.groupby(["building_id", "timestamp"], as_index=False)[numeric_cols].mean()
+        df = hourly_aggregate(df)
 
         frames.append(df)
 
@@ -82,6 +88,7 @@ def batched(iterable: List[str], batch_size: int) -> Iterator[List[str]]:
 def process_state_in_batches(
     state: str,
     columns: List[str],
+    supported_energy: List[str],
     output_dir: str,
     batch_size: int = 100,
     max_workers: int = 8,
@@ -93,8 +100,9 @@ def process_state_in_batches(
     manifest_path = output_dir / f"{state}_manifest.json"
     manifest = load_manifest(manifest_path)
 
-    metadata = load_state_metadata(state)
-    electric_only_ids = set(metadata[is_electric_only(metadata)]["building_id"])
+    electric_only_ids = is_electric_only(state, supported_energy)
+    
+    # TODO - subset to electric only
 
     file_paths = fs.glob(f"{PREFIX}state={state}/*.parquet")
     batches = list(batched(file_paths, batch_size))
@@ -105,7 +113,7 @@ def process_state_in_batches(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for i, batch in enumerate(batches):
             if i in manifest:
-                continue  # Already processed
+                continue  # Path already processed
 
             output_file = output_dir / f"{state}_batch_{i:03}.parquet"
             futures[executor.submit(read_batch, batch, electric_only_ids, columns)] = (i, output_file)
@@ -134,3 +142,11 @@ def save_manifest(manifest: dict[int, str], manifest_path: Path) -> None:
     # Sort keys for readability
     with open(manifest_path, "w") as f:
         json.dump({str(k): v for k, v in sorted(manifest.items())}, f, indent=2)
+
+# For testing
+#data_paths = process_state_in_batches(state = 'CO', 
+#                               columns = read_cols,
+#                               supported_energy = supported_energy,
+#                               output_dir = r"C:\Users\DTRManning\Desktop\OptimizeResiGenSizing\data",
+#                               batch_size = 5,
+#                               max_workers = 5 )
