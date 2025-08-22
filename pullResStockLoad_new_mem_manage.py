@@ -69,7 +69,7 @@ def read_batch(batch_paths: List[str], allowed_ids: set[str], columns: List[str]
 
         df = pd.read_parquet(f"s3://{path}", filesystem=fs, columns=columns)
         df["building_id"] = building_id
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("H")
+        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
 
         df = hourly_aggregate(df)
 
@@ -83,6 +83,30 @@ def batched(iterable: List[str], batch_size: int) -> Iterator[List[str]]:
     it = iter(iterable)
     while batch := list(islice(it, batch_size)):
         yield batch
+
+
+def process_batch(
+    batch_paths: List[str],
+    state: str,
+    allowed_ids: set[str],
+    columns: List[str],
+    output_file: Path
+) -> dict:
+    """
+    Process a single batch: read parquet(s), aggregate, write parquet,
+    and return a manifest entry. Small, pure unit-testable function.
+    """
+    df = read_batch(batch_paths, allowed_ids, columns)
+    if df.empty:
+        return {}
+
+    df.to_parquet(output_file, index=False)
+
+    return {
+        "path": str(output_file),
+        "building_ids": [extract_building_id(p) for p in batch_paths],
+        "state": state
+    }
 
 
 def process_state_in_batches(
@@ -101,14 +125,20 @@ def process_state_in_batches(
     manifest = load_manifest(manifest_path)
 
     electric_only_ids = is_electric_only(state, supported_energy)
-    
-    # TODO - subset to electric only
 
     file_paths = fs.glob(f"{PREFIX}state={state}/*.parquet")
+    
+    # Only read electric only data
+    electric_ids_set = set(map(str, electric_only_ids))
+    file_paths = [
+        p for p in file_paths
+        if Path(p).stem.split("-")[0] in electric_ids_set
+    ]
+    
     batches = list(batched(file_paths, batch_size))
 
     futures = {}
-    output_paths = [Path(p) for p in manifest.values()]
+    output_paths = [Path(v["path"]) if isinstance(v, dict) else Path(v) for v in manifest.values()]
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for i, batch in enumerate(batches):
@@ -116,15 +146,14 @@ def process_state_in_batches(
                 continue  # Path already processed
 
             output_file = output_dir / f"{state}_batch_{i:03}.parquet"
-            futures[executor.submit(read_batch, batch, electric_only_ids, columns)] = (i, output_file)
+            futures[executor.submit(process_batch, batch, state, electric_only_ids, columns, output_file)] = (i, output_file)
 
         for future in as_completed(futures):
             i, output_file = futures[future]
             try:
-                result_df = future.result()
-                if not result_df.empty:
-                    result_df.to_parquet(output_file, index=False)
-                    manifest[i] = str(output_file)
+                entry = future.result()
+                if entry:
+                    manifest[i] = entry
                     output_paths.append(output_file)
                     save_manifest(manifest, manifest_path)
             except Exception as e:
@@ -144,9 +173,10 @@ def save_manifest(manifest: dict[int, str], manifest_path: Path) -> None:
         json.dump({str(k): v for k, v in sorted(manifest.items())}, f, indent=2)
 
 # For testing
-#data_paths = process_state_in_batches(state = 'CO', 
-#                               columns = read_cols,
-#                               supported_energy = supported_energy,
-#                               output_dir = r"C:\Users\DTRManning\Desktop\OptimizeResiGenSizing\data",
-#                               batch_size = 5,
-#                               max_workers = 5 )
+data_paths = process_state_in_batches(state = 'CO', 
+                               columns = read_cols,
+                               supported_energy = supported_energy,
+                               output_dir = r"C:\Users\DTRManning\Desktop\OptimizeResiGenSizing\data",
+                               batch_size = 5,
+                               max_workers = 5 )
+
