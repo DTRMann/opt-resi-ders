@@ -58,14 +58,12 @@ def hourly_aggregate(df: pd.DataFrame) -> pd.DataFrame:
     return df.groupby("timestamp", as_index=False)[numeric_cols].sum()
 
 
-def read_batch(batch_paths: List[str], allowed_ids: set[str], columns: List[str]) -> pd.DataFrame:
+def read_batch(batch_paths: List[str], columns: List[str]) -> pd.DataFrame:
     """Read and process a batch of parquet files."""
     frames = []
 
     for path in batch_paths:
         building_id = extract_building_id(path)
-        if building_id not in allowed_ids:
-            continue
 
         df = pd.read_parquet(f"s3://{path}", filesystem=fs, columns=columns)
         df["building_id"] = building_id
@@ -77,26 +75,35 @@ def read_batch(batch_paths: List[str], allowed_ids: set[str], columns: List[str]
 
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-
 def batched(iterable: List[str], batch_size: int) -> Iterator[List[str]]:
     """Yield successive batches from a list."""
     it = iter(iterable)
     while batch := list(islice(it, batch_size)):
         yield batch
 
+def filter_allowed(file_paths: List[str], allowed_ids: set[str]) -> List[str]:
+    """Filter file paths to only include allowed building IDs."""
+    # Only read electric only data
+    allowed_ids_set = set(map(str, allowed_ids))
+    
+    file_paths = [
+        p for p in file_paths
+        if Path(p).stem.split("-")[0] in allowed_ids_set
+    ]
+    
+    return file_paths
 
 def process_batch(
     batch_paths: List[str],
     state: str,
-    allowed_ids: set[str],
     columns: List[str],
     output_file: Path
 ) -> dict:
     """
     Process a single batch: read parquet(s), aggregate, write parquet,
-    and return a manifest entry. Small, pure unit-testable function.
+    and return a manifest entry. 
     """
-    df = read_batch(batch_paths, allowed_ids, columns)
+    df = read_batch(batch_paths, columns)
     if df.empty:
         return {}
 
@@ -128,12 +135,7 @@ def process_state_in_batches(
 
     file_paths = fs.glob(f"{PREFIX}state={state}/*.parquet")
     
-    # Only read electric only data
-    electric_ids_set = set(map(str, electric_only_ids))
-    file_paths = [
-        p for p in file_paths
-        if Path(p).stem.split("-")[0] in electric_ids_set
-    ]
+    file_paths = filter_allowed(file_paths, electric_only_ids)
     
     batches = list(batched(file_paths, batch_size))
 
@@ -146,7 +148,7 @@ def process_state_in_batches(
                 continue  # Path already processed
 
             output_file = output_dir / f"{state}_batch_{i:03}.parquet"
-            futures[executor.submit(process_batch, batch, state, electric_only_ids, columns, output_file)] = (i, output_file)
+            futures[executor.submit(process_batch, batch, state, columns, output_file)] = (i, output_file)
 
         for future in as_completed(futures):
             i, output_file = futures[future]
@@ -172,7 +174,8 @@ def save_manifest(manifest: dict[int, str], manifest_path: Path) -> None:
     with open(manifest_path, "w") as f:
         json.dump({str(k): v for k, v in sorted(manifest.items())}, f, indent=2)
 
-# For testing
+### For testing
+# Full test
 data_paths = process_state_in_batches(state = 'CO', 
                                columns = read_cols,
                                supported_energy = supported_energy,
@@ -180,3 +183,13 @@ data_paths = process_state_in_batches(state = 'CO',
                                batch_size = 5,
                                max_workers = 5 )
 
+# Basic unit test
+entry = process_batch(
+    ["oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/timeseries_individual_buildings/by_state/upgrade=0/state=CO/100035-0.parquet"],
+    "CO",
+    {"100035"},
+    read_cols,
+    Path(r"C:\Users\DTRManning\Desktop\OptimizeResiGenSizing\data\test.parquet")
+)
+assert entry["state"] == "CO"
+assert "100035" in entry["building_ids"]
