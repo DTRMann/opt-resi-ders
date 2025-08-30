@@ -21,7 +21,7 @@ import getStateMetaData
 fs = s3fs.S3FileSystem(anon=True)
 
 # Constants
-read_cols = [ 'timestamp', 'out.electricity.net.energy_consumption' ]
+read_cols = [ 'timestamp', 'out.electricity.net.energy_consumption', 'out.electricity.pv.energy_consumption' ]
 supported_energy = ['Electric', 'Electric Resistance', 'Electric Induction',
                     'Electricity'] # Allowed energy sources; assuming all electric homes
 
@@ -53,7 +53,7 @@ def is_electric_only(state: str, supported_energy: List[str]) -> pd.Series:
 
 def hourly_aggregate(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate numeric columns to hourly resolution."""
-    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("H")
+    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
     numeric_cols = df.select_dtypes("number").columns
     return df.groupby("timestamp", as_index=False)[numeric_cols].sum()
 
@@ -67,7 +67,6 @@ def read_batch(batch_paths: List[str], columns: List[str]) -> pd.DataFrame:
 
         df = pd.read_parquet(f"s3://{path}", filesystem=fs, columns=columns)
         df["building_id"] = building_id
-        df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
 
         df = hourly_aggregate(df)
 
@@ -187,9 +186,10 @@ data_paths = process_state_in_batches(state = 'CO',
 entry = process_batch(
     ["oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/timeseries_individual_buildings/by_state/upgrade=0/state=CO/100035-0.parquet"],
     "CO",
-    {"100035"},
     read_cols,
     Path(r"C:\Users\DTRManning\Desktop\OptimizeResiGenSizing\data\test.parquet")
 )
 assert entry["state"] == "CO"
 assert "100035" in entry["building_ids"]
+
+test_parquet = pd.read_parquet( entry['path'] )
