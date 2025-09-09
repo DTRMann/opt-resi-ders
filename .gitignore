@@ -1,0 +1,5 @@
+# Ignore all parquet files
+*.parquet
+# Except
+!data/CO_manifest.json
+!data/test.parquet

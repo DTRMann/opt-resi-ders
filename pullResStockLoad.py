@@ -52,26 +52,23 @@ def is_electric_only(state: str, supported_energy: List[str]) -> pd.Series:
 
 
 def hourly_aggregate(df: pd.DataFrame) -> pd.DataFrame:
-    """Aggregate numeric columns to hourly resolution."""
+    """Aggregate numeric columns to hourly resolution, preserving building_id."""
     df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.floor("h")
     numeric_cols = df.select_dtypes("number").columns
-    return df.groupby("timestamp", as_index=False)[numeric_cols].sum()
+    assert "building_id" in df.columns, "building_id missing before aggregation"
+    return df.groupby(["building_id", "timestamp"], as_index=False)[numeric_cols].sum()
 
 
 def read_batch(batch_paths: List[str], columns: List[str]) -> pd.DataFrame:
-    """Read and process a batch of parquet files."""
-    frames = []
-
-    for path in batch_paths:
+    """Read, tag with building_id, aggregate, and combine parquet files in a batch."""
+    
+    def load_and_process(path: str) -> pd.DataFrame:
         building_id = extract_building_id(path)
-
         df = pd.read_parquet(f"s3://{path}", filesystem=fs, columns=columns)
         df["building_id"] = building_id
+        return hourly_aggregate(df)
 
-        df = hourly_aggregate(df)
-
-        frames.append(df)
-
+    frames = [load_and_process(path) for path in batch_paths]
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 def batched(iterable: List[str], batch_size: int) -> Iterator[List[str]]:
@@ -179,7 +176,7 @@ data_paths = process_state_in_batches(state = 'CO',
                                columns = read_cols,
                                supported_energy = supported_energy,
                                output_dir = r"C:\Users\DTRManning\Desktop\OptimizeResiGenSizing\data",
-                               batch_size = 5,
+                               batch_size = 50,
                                max_workers = 5 )
 
 # Basic unit test
