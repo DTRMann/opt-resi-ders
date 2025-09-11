@@ -190,3 +190,18 @@ assert entry["state"] == "CO"
 assert "100035" in entry["building_ids"]
 
 test_parquet = pd.read_parquet( entry['path'] )
+
+# Unit test, two buildings
+entry2 = process_batch(
+    ["oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/timeseries_individual_buildings/by_state/upgrade=0/state=CO/100035-0.parquet",
+     "oedi-data-lake/nrel-pds-building-stock/end-use-load-profiles-for-us-building-stock/2024/resstock_amy2018_release_2/timeseries_individual_buildings/by_state/upgrade=0/state=CO/100134-0.parquet"],
+    "CO",
+    read_cols,
+    Path(r"C:\Users\DTRManning\Desktop\OptimizeResiGenSizing\data\test.parquet")
+)
+assert entry["state"] == "CO"
+assert "100134" in entry2["building_ids"]
+
+test_parquet2 = pd.read_parquet( entry2['path'] )
+
+
